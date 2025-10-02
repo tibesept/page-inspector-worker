@@ -3,7 +3,7 @@ import { apiService } from "../ApiService/index.js";
 import logger from "../logger.js";
 import PageAnalyzer, { PageAnalysisResult } from "../PageAnalyzer/index.js";
 
-type TSerializedParsing = {
+type TSerializedResult = {
     success: boolean;
     result: string;
 }
@@ -34,12 +34,12 @@ export default class TaskProcessor {
         }
 
         const analysingResult = await this.analyzer.parsePage(task.url);
-        const serializedParsing = this.serializeParsingOutput(analysingResult);
-        this.updateJob(serializedParsing);
+        const serializedResult = this.serializeAnalyzerOutput(analysingResult);
+        this.updateJob(serializedResult);
     }
 
 
-    private serializeParsingOutput(analyzed: PageAnalysisResult): TSerializedParsing {
+    private serializeAnalyzerOutput(analyzed: PageAnalysisResult): TSerializedResult {
         logger.debug("Preparing parsing result");
 
         let success = true;
@@ -76,7 +76,7 @@ export default class TaskProcessor {
         
     }
 
-    private async updateJob(data: TSerializedParsing) {
+    private async updateJob(data: TSerializedResult) {
         logger.debug("Updating job");
         const task = this.task;
 
