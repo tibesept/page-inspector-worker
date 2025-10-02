@@ -6,6 +6,9 @@ import { jobTaskSchema } from "./types.js";
 
 import TaskProcessor from "./TaskProcessor/index.js";
 
+import dns from 'dns';
+dns.setDefaultResultOrder('ipv4first'); // используем ipv4
+
 setupGlobalErrorHandlers();
 
 async function startWorker() {
