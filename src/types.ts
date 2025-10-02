@@ -70,9 +70,17 @@ export const jobWorkerResultSchema = z.object({
         externalLinks: z.number(),
         robotsTxtExists: z.boolean(),
     }),
+    brokenLinks: z.array(z.object({
+        url: z.string(),
+        status: z.number(),
+        error: z.string().nullable()
+    }))
 });
 
+
+
 export type JobWorkerResultDTO = z.infer<typeof jobWorkerResultSchema>;
+export type JobWorkerBrokenLinksType = JobWorkerResultDTO['brokenLinks'];
 
 // TYPES
 export type CreateJobBody = z.infer<typeof createJobBodySchema>;

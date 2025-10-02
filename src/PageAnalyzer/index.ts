@@ -4,10 +4,27 @@ import lighthouse from "lighthouse";
 import { Flags } from "lighthouse";
 
 import { launch } from "chrome-launcher";
-import { parse } from "path";
+import { JobWorkerBrokenLinksType } from "../types.js";
   
 const userAgent =
     "Mozilla/5.0 (iPhone; CPU iPhone OS 13_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/13.1.1 Mobile/15E148 Safari/604.1";
+
+export interface SeoData {
+    title: string | null;
+    description: string | null;
+    h1: string | null;
+    linksCount: number;
+    internalLinks: number;
+    externalLinks: number;
+}
+
+export interface PageAnalysisResult {
+    response: puppeteer.HTTPResponse | null;
+    image: Buffer;
+    seoData: SeoData;
+    robotsTxt: string | null;
+    brokenLinks: JobWorkerBrokenLinksType;
+}
 
 export default class PageAnalyzer {
     private readonly type;
@@ -22,7 +39,7 @@ export default class PageAnalyzer {
         return this.parsePage(url);
     }
 
-    async parsePage(url: string) {
+    async parsePage(url: string): Promise<PageAnalysisResult> {
         const browser = await puppeteer.launch({
             headless: true,
         });
@@ -38,7 +55,7 @@ export default class PageAnalyzer {
 
         logger.debug("Going to page");
         const response = await page.goto(url, {
-            waitUntil: "domcontentloaded",
+            waitUntil: "networkidle0", // дожидаемся завершения сетевой активности
             timeout: 15000,
         });
 
@@ -97,13 +114,49 @@ export default class PageAnalyzer {
         });
 
         logger.debug("Closing browser");
+
+
+        // ПОИСК БИТЫХ ССЫЛОК
+        const brokenLinks: JobWorkerBrokenLinksType = []
+
+        const links = await page.$$eval('a', anchors =>
+            anchors.map(anchor => anchor.href)
+        );
+        const uniqueLinks = [...new Set(links)];
+        logger.info(uniqueLinks.length, "Unique links found:");
+
+        const checkPromises = uniqueLinks.map(async (link) => {
+            if (!link || link.startsWith('mailto:') || link.startsWith('tel:')) {
+                return; // Пропускаем не-HTTP ссылки
+            }
+            try {
+                const response = await fetch(link, { method: 'HEAD', signal: AbortSignal.timeout(5000) }); // таймаут
+                if (response.status >= 400) { 
+                    logger.debug({ link, status: response.status }, "bad link found");
+                    brokenLinks.push({ url: link, status: response.status, error: null });
+                }
+            } catch (error) {
+                let errorMessage = 'unknown';
+
+                if (error instanceof Error) {
+                    errorMessage = error.message;
+                }
+                logger.error({ error, link }, "link check error")
+                brokenLinks.push({ url: link, status: -1, error: errorMessage });
+            }
+        });
+
+        await Promise.all(checkPromises);
+
+
         await browser.close();
 
         return {
             response,
-            image,
+            image: Buffer.from(image),
             seoData,
             robotsTxt,
+            brokenLinks
         };
     }
 

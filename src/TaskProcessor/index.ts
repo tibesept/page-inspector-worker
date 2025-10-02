@@ -1,7 +1,7 @@
 import { JobTask, JobWorkerResultDTO } from "../types.js";
 import { apiService } from "../ApiService/index.js";
 import logger from "../logger.js";
-import PageAnalyzer from "../PageAnalyzer/index.js";
+import PageAnalyzer, { PageAnalysisResult } from "../PageAnalyzer/index.js";
 
 type TSerializedParsing = {
     success: boolean;
@@ -33,19 +33,19 @@ export default class TaskProcessor {
             return;
         }
 
-        const parsingResult = await this.analyzer.parsePage(task.url);
-        const serializedParsing = this.serializeParsingOutput(parsingResult);
+        const analysingResult = await this.analyzer.parsePage(task.url);
+        const serializedParsing = this.serializeParsingOutput(analysingResult);
         this.updateJob(serializedParsing);
     }
 
 
-    private serializeParsingOutput(parsing: any): TSerializedParsing {
+    private serializeParsingOutput(analyzed: PageAnalysisResult): TSerializedParsing {
         logger.debug("Preparing parsing result");
 
         let success = true;
         let result = "";
 
-        if(!parsing?.image) {
+        if(!analyzed?.image) {
             return {
                 success,
                 result
@@ -53,14 +53,17 @@ export default class TaskProcessor {
         }
 
         try {
-            result = JSON.stringify({
-                screenshot: Buffer.from(parsing.image).toString("base64"),
-                status: parsing.response?.status() || null,
+            const data: JobWorkerResultDTO = {
+                screenshot: analyzed.image.toString("base64"),
+                status: analyzed.response?.status() || null,
                 seo: {
-                    ...parsing.seoData,
-                    robotsTxtExists: parsing.robotsTxt !== null,
+                    ...analyzed.seoData,
+                    robotsTxtExists: analyzed.robotsTxt !== null,
                 },
-            });
+                brokenLinks: analyzed.brokenLinks
+            };
+
+            result = JSON.stringify(data);
         } catch(e) {
             logger.error(e, "Error during serializing parsing result")
             success = false
