@@ -1,6 +1,6 @@
 import { z } from "zod";
-import { config } from "../config";
-import logger from "../logger";
+import { config } from "../config.js";
+import logger from "../logger.js";
 
 /**
  * Отправка HTTP запросов к API

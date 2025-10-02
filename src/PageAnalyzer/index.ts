@@ -1,6 +1,11 @@
 import puppeteer from "puppeteer";
-import logger from "../logger";
+import logger from "../logger.js";
+import lighthouse from "lighthouse";
+import { Flags } from "lighthouse";
 
+import { launch } from "chrome-launcher";
+import { parse } from "path";
+  
 const userAgent =
     "Mozilla/5.0 (iPhone; CPU iPhone OS 13_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/13.1.1 Mobile/15E148 Safari/604.1";
 
@@ -11,6 +16,10 @@ export default class PageAnalyzer {
     constructor(type: number, depth: number) {
         this.type = type; // Тип задачи. Платная/бесплатная
         this.depth = depth; // Глубина задачи
+    }
+
+    async analyze(url: string) {
+        return this.parsePage(url);
     }
 
     async parsePage(url: string) {
@@ -32,6 +41,7 @@ export default class PageAnalyzer {
             waitUntil: "domcontentloaded",
             timeout: 15000,
         });
+
 
         logger.debug("Evaluate");
 
@@ -95,5 +105,32 @@ export default class PageAnalyzer {
             seoData,
             robotsTxt,
         };
+    }
+
+
+
+    async runLightHouse(url: string) {
+        async function runLighthouse(url: string) {
+            // Запускаем Chrome
+            const chrome = await launch({ chromeFlags: ["--headless", "--no-sandbox"] });
+          
+            const options: Flags = {
+              logLevel: "info",
+              output: "json", // или "html", или массив ["json","html"]
+              onlyCategories: ["performance", "seo", "best-practices"],
+              port: chrome.port,
+            };
+          
+            // Запускаем Lighthouse
+            const runnerResult = await lighthouse(url, options);
+          
+            // runnerResult.report — это строка (HTML или JSON в зависимости от options.output)
+            // runnerResult.lhr — готовый объект с результатами
+            console.log("Performance score was", runnerResult?.lhr.categories.performance.score);
+          
+            await chrome.kill();
+          
+            return runnerResult;
+          }
     }
 }

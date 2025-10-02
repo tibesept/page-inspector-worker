@@ -1,11 +1,7 @@
-import { _apiHttpClient } from "../HttpClient";
-import { CreateJobDTO, postJobSchemaDTO, UpdateJobBody } from "../types";
+import { _apiHttpClient } from "../HttpClient/index.js";
+import { CreateJobDTO, postJobSchemaDTO, UpdateJobBody } from "../types.js";
 import { z } from "zod";
 
-// TODO: норм интерфейс для обращения к rabbit без постоянных коннектов
-// TODO: норм ApiService
-// TODO: ERROR HANDLER
-// TODO: gracefully closing app, close rabbit connection
 
 type HttpClient = typeof _apiHttpClient;
 
@@ -17,7 +13,7 @@ class ApiService {
         id: number,
         body: UpdateJobBody,
     ): Promise<CreateJobDTO> {
-        return this.client.get(`/jobs/ready`, postJobSchemaDTO);
+        return this.client.put(`/jobs/${id}`, body, postJobSchemaDTO);
     }
 
     public doJobExist(id: number): Promise<Boolean> {

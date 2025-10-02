@@ -1,5 +1,5 @@
 import { pino } from "pino";
-import { config } from "./config";
+import { config } from "./config.js";
 
 const LOG_LEVEL = config.env === "dev" ? "debug" : "info";
 

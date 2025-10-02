@@ -1,7 +1,7 @@
-import { JobTask, JobWorkerResultDTO } from "../types";
-import { apiService } from "../ApiService";
-import logger from "../logger";
-import PageAnalyzer from "../PageAnalyzer";
+import { JobTask, JobWorkerResultDTO } from "../types.js";
+import { apiService } from "../ApiService/index.js";
+import logger from "../logger.js";
+import PageAnalyzer from "../PageAnalyzer/index.js";
 
 type TSerializedParsing = {
     success: boolean;
