@@ -106,13 +106,7 @@ export default class PageAnalyzer {
         const image = await page.screenshot({
             type: "jpeg",
             quality: 20,
-            clip: {
-                x: 0,
-                y: 0,
-                width: 640,
-                height: 360,
-            },
-            omitBackground: true,
+            omitBackground: true, // делает фон прозрачным (если страница не задает цвет фона)
         });
 
 
