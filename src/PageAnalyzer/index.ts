@@ -1,9 +1,10 @@
-import puppeteer from "puppeteer";
+import puppeteer from "puppeteer-core";
 import logger from "../logger.js";
 import lighthouse from "lighthouse";
 import { Flags } from "lighthouse";
-
 import { launch } from "chrome-launcher";
+
+import { config } from "../config.js";
 import { JobWorkerBrokenLinksType } from "../types.js";
   
 const RETRY_COUNT = 2; // Количество повторных попыток
@@ -44,6 +45,8 @@ export default class PageAnalyzer {
     async parsePage(url: string): Promise<PageAnalysisResult> {
         const browser = await puppeteer.launch({
             headless: true,
+            executablePath: config.chrome_executable_path,
+            args: config.args
         });
 
         logger.debug("Browser setup");

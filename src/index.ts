@@ -2,12 +2,16 @@ import { rabbitMQClient as rabbit } from "./rabbit.js";
 import logger from "./logger.js";
 import { setupGlobalErrorHandlers } from "./errors/errorHandler.js";
 
+import { config } from "./config.js";
 import { jobTaskSchema } from "./types.js";
 
 import TaskProcessor from "./TaskProcessor/index.js";
 
 import dns from 'dns';
 dns.setDefaultResultOrder('ipv4first'); // используем ipv4
+
+logger.info(config.args, "Args:");
+logger.info(`Chrome path: ${config.chrome_executable_path}`);
 
 setupGlobalErrorHandlers();
 

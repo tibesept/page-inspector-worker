@@ -6,6 +6,7 @@ import logger from "../logger.js";
  * Отправка HTTP запросов к API
  * Класс не экспортируется, чтобы никто не мог создать второй экземпляр.
  */
+// TODO: удалить console.log
 class ApiHttpClient {
     private readonly baseUrl: string;
     private readonly apiKey: string;
