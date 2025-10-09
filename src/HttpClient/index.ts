@@ -6,7 +6,6 @@ import logger from "../logger.js";
  * Отправка HTTP запросов к API
  * Класс не экспортируется, чтобы никто не мог создать второй экземпляр.
  */
-// TODO: удалить console.log
 class ApiHttpClient {
     private readonly baseUrl: string;
     private readonly apiKey: string;
@@ -14,7 +13,7 @@ class ApiHttpClient {
     constructor() {
         this.baseUrl = config.api_url;
         this.apiKey = config.worker_auth_token;
-        console.log("ApiHttpClient initialized");
+        logger.debug("ApiHttpClient initialized");
     }
 
     public get<T>(path: string, schema: z.ZodSchema<T>): Promise<T> {
@@ -72,7 +71,7 @@ class ApiHttpClient {
             
             const result = schema.safeParse(data);
             if (!result.success) {
-                console.error("Zod validation error:", result.error);
+                logger.error(result.error, "Zod validation error:");
                 throw new Error(
                     `Invalid data from API: ${result.error.message}`,
                 );
@@ -80,7 +79,7 @@ class ApiHttpClient {
 
             return result.data;
         } catch (error) {
-            console.error(`HTTP Request ${url} Failed:`, error);
+            logger.error(error, `HTTP Request Failed to url: ${url}`);
             throw error;
         }
     }
