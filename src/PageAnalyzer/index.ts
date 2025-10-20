@@ -5,8 +5,12 @@ import { Flags } from "lighthouse";
 import logger from "../logger.js";
 import { config } from "../config.js";
 
-import { JobWorkerBrokenLinksType, JobWorkerLighthouseResult } from "../types.js";
-  
+import {
+    JobWorkerBrokenLinksType,
+    JobWorkerLighthouseResult,
+} from "../types.js";
+import { TECH_RULES } from "./techRules.js";
+
 const RETRY_COUNT = 2; // Количество повторных попыток
 const RETRY_DELAY = 3000; // Начальная задержка в мс
 const USER_AGENT =
@@ -28,6 +32,7 @@ export interface PageAnalysisResult {
     robotsTxt: string | null;
     brokenLinks: JobWorkerBrokenLinksType;
     lighthouse: JobWorkerLighthouseResult | null;
+    techStack: string[] | null;
 }
 
 export default class PageAnalyzer {
@@ -47,11 +52,12 @@ export default class PageAnalyzer {
         const browser = await puppeteer.launch({
             headless: true,
             executablePath: config.chrome_executable_path,
-            args: config.args
+            args: config.args,
         });
 
         logger.debug("Browser setup");
 
+        // --- LIGHTHOUSE ---
         let lighthouseResult: JobWorkerLighthouseResult | null = null;
         try {
             logger.debug("Running Lighthouse...");
@@ -62,6 +68,7 @@ export default class PageAnalyzer {
             // Не прерываем выполнение, просто логгируем ошибку
         }
 
+        // --- PUPPETEER SETUP ---
         const page = await browser.newPage();
         await page.setUserAgent(USER_AGENT);
         await page.setViewport({
@@ -76,9 +83,9 @@ export default class PageAnalyzer {
             timeout: 15000,
         });
 
-
         logger.debug("Evaluate");
 
+        // --- SEO DATA ---
         const seoData = await page.evaluate(() => {
             const title = document.title || null;
             const description =
@@ -105,6 +112,7 @@ export default class PageAnalyzer {
             };
         });
 
+        // --- ROBOTS TXT ---
         logger.debug("Robots.txt check");
         let robotsTxt: string | null = null;
         try {
@@ -117,6 +125,18 @@ export default class PageAnalyzer {
             logger.warn("Robots.txt not accessible");
         }
 
+        // --- TECH STACK ---
+        let techStack: string[] | null = null;
+        try {
+            logger.debug("Detecting tech stack...");
+            // Передаем все три источника данных
+            techStack = await this.detectTechStack(page, response, robotsTxt);
+            logger.info(techStack, "Tech stack detected");
+        } catch (err) {
+            logger.error(err, "Tech stack detection failed");
+        }
+
+        // --- SCREENSHOT ---
         logger.debug("Screenshotting");
         const image = await page.screenshot({
             type: "jpeg",
@@ -124,13 +144,11 @@ export default class PageAnalyzer {
             omitBackground: true, // делает фон прозрачным (если страница не задает цвет фона)
         });
 
+        // --- BROKEN LINKS ---
+        const brokenLinks: JobWorkerBrokenLinksType = [];
 
-
-        // ПОИСК БИТЫХ ССЫЛОК
-        const brokenLinks: JobWorkerBrokenLinksType = []
-
-        const links = await page.$$eval('a, area', anchors =>
-            anchors.map(anchor => anchor.href)
+        const links = await page.$$eval("a, area", (anchors) =>
+            anchors.map((anchor) => anchor.href),
         );
 
         const CONCURRENCY_LIMIT = 10; // Лимит одновременных запросов
@@ -143,14 +161,14 @@ export default class PageAnalyzer {
         // Обрабатываем ссылки пачками
         for (let i = 0; i < linksToCheck.length; i += CONCURRENCY_LIMIT) {
             const chunk = linksToCheck.slice(i, i + CONCURRENCY_LIMIT);
-            
+
             logger.info(`Checking chunk ${Math.floor(i / CONCURRENCY_LIMIT) + 1}...`);
-        
+
             const promises = chunk.map(link => this.checkLinkBroken(link));
             const chunkResults = await Promise.all(promises);
-            
+
             results.push(...chunkResults.filter(result => result !== null));
-        
+
             // Делаем паузу перед следующей пачкой
             if (i + CONCURRENCY_LIMIT < linksToCheck.length) {
                 await new Promise(resolve => setTimeout(resolve, CHUNK_DELAY));
@@ -167,40 +185,47 @@ export default class PageAnalyzer {
             seoData,
             robotsTxt,
             brokenLinks,
-            lighthouse: lighthouseResult
+            lighthouse: lighthouseResult,
+            techStack: techStack,
         };
     }
 
-
-
-private async runLightHouse(url: string, browser: puppeteer.Browser): Promise<JobWorkerLighthouseResult | null> {
+    private async runLightHouse(
+        url: string,
+        browser: puppeteer.Browser,
+    ): Promise<JobWorkerLighthouseResult | null> {
         // Получаем порт из WebSocket-адреса браузера
         const port = new URL(browser.wsEndpoint()).port;
 
         const options: Flags = {
             port: +port, // порт должен быть числом!!
             output: "json",
-            onlyCategories: ["performance", "accessibility", "best-practices", "seo"],
+            onlyCategories: [
+                "performance",
+                "accessibility",
+                "best-practices",
+                "seo",
+            ],
             logLevel: "info",
-            
+
             screenEmulation: {
                 mobile: true,
                 width: 720,
                 height: 1280,
                 deviceScaleFactor: 2,
             },
-            
+
             // медленное соединение для эмуляции
             throttling: {
                 rttMs: 40,
                 throughputKbps: 10 * 1024,
                 cpuSlowdownMultiplier: 4,
-                requestLatencyMs: 0, 
+                requestLatencyMs: 0,
                 downloadThroughputKbps: 0,
                 uploadThroughputKbps: 0,
             },
         };
-      
+
         // запуск аудита
         const runnerResult = await lighthouse(url, options);
 
@@ -213,85 +238,204 @@ private async runLightHouse(url: string, browser: puppeteer.Browser): Promise<Jo
         // берем только нужные метрики
         const getNumericValue = (id: string): number | null => {
             return lhr.audits[id]?.numericValue ?? null;
-        }
+        };
 
         return {
             performance: lhr.categories.performance.score,
             accessibility: lhr.categories.accessibility.score,
-            bestPractices: lhr.categories['best-practices'].score,
+            bestPractices: lhr.categories["best-practices"].score,
             seo: lhr.categories.seo.score,
 
-            lcp: getNumericValue('largest-contentful-paint'),
-            cls: getNumericValue('cumulative-layout-shift'),
-            tbt: getNumericValue('total-blocking-time'),
+            lcp: getNumericValue("largest-contentful-paint"),
+            cls: getNumericValue("cumulative-layout-shift"),
+            tbt: getNumericValue("total-blocking-time"),
         };
     }
 
-    async checkLinkBroken(url: string, retriesLeft = RETRY_COUNT): Promise<JobWorkerBrokenLinksType[number] | null> {
+    private async detectTechStack(
+        page: puppeteer.Page,
+        response: puppeteer.HTTPResponse | null,
+        robotsTxt: string | null,
+    ): Promise<string[]> {
+        const detected: Set<string> = new Set();
+        const headers = response ? response.headers() : {};
 
+        // получаем все источники данных из DOM за один вызов
+        const dataSources = await page.evaluate(() => {
+            const scripts = Array.from(document.scripts)
+                .map((s) => s.src)
+                .filter(Boolean);
+
+            const meta = Array.from(
+                document.querySelectorAll<HTMLMetaElement>("meta[name]"),
+            ).reduce(
+                (acc, m) => {
+                    if (m.name && m.content) {
+                        acc[m.name.toLowerCase()] = m.content;
+                    }
+                    return acc;
+                },
+                {} as { [name: string]: string },
+            );
+
+            const windowProps = Object.keys(window);
+            const html = document.documentElement.outerHTML;
+
+            return { scripts, meta, windowProps, html };
+        });
+
+        // прогоняем собранные данные по нашим правилам
+        for (const rule of TECH_RULES) {
+        if (detected.has(rule.name)) continue;
+
+            // проверка заголовков
+            if (rule.headers) {
+                for (const headerName in rule.headers) {
+                    const headerValue = headers[headerName.toLowerCase()];
+                    if (
+                        headerValue &&
+                        rule.headers[headerName].test(headerValue)
+                    ) {
+                        detected.add(rule.name);
+                        break;
+                    }
+                }
+            }
+
+            // скрипты
+            if (rule.scripts) {
+                for (const scriptSrc of dataSources.scripts) {
+                    if (rule.scripts.some((r) => r.test(scriptSrc))) {
+                        detected.add(rule.name);
+                        break;
+                    }
+                }
+            }
+
+            // тег meta
+            if (rule.meta) {
+                for (const metaName in rule.meta) {
+                    const metaValue = dataSources.meta[metaName];
+                    if (metaValue && rule.meta[metaName].test(metaValue)) {
+                        detected.add(rule.name);
+                        break;
+                    }
+                }
+            }
+
+            // window
+            if (rule.window) {
+                if (
+                    rule.window.some((prop) =>
+                        dataSources.windowProps.includes(prop),
+                    )
+                ) {
+                    detected.add(rule.name);
+                }
+            }
+
+            // html
+            if (rule.html) {
+                if (rule.html.some((r) => r.test(dataSources.html))) {
+                    detected.add(rule.name);
+                }
+            }
+
+            // robots.txt
+            if (rule.robots && robotsTxt) {
+                if (rule.robots.some((r) => r.test(robotsTxt))) {
+                    detected.add(rule.name);
+                }
+            }
+        }
+
+        return Array.from(detected);
+    }
+
+
+    async checkLinkBroken(
+        url: string,
+        retriesLeft = RETRY_COUNT,
+    ): Promise<JobWorkerBrokenLinksType[number] | null> {
         // Пропускаем не-HTTP ссылки
-        const nonHttpProtocolsRegex = /^(#|javascript:|mailto:|tel:|sms:|fax:|file:|data:|blob:)/;
+        const nonHttpProtocolsRegex =
+            /^(#|javascript:|mailto:|tel:|sms:|fax:|file:|data:|blob:)/;
         if (!url || nonHttpProtocolsRegex.test(url)) {
             return null;
         }
 
-        let wasGetRequest = false; 
+        let wasGetRequest = false;
 
-    
         try {
             // Сначала пытаемся сделать HEAD запрос
             let response = await fetch(url, {
-                method: 'HEAD',
+                method: "HEAD",
                 signal: AbortSignal.timeout(8000),
-                headers: { 'User-Agent': USER_AGENT },
-                redirect: 'follow' // fetch следует за редиректами по умолчанию
+                headers: { "User-Agent": USER_AGENT },
+                redirect: "follow", // fetch следует за редиректами по умолчанию
             });
-    
+
             // Если HEAD заблокирован (403/405), пробуем GET
             if (response.status === 403 || response.status === 405) {
-                logger.debug(`HEAD failed for ${url} with status ${response.status}. Retrying with GET.`);
+                logger.debug(
+                    `HEAD failed for ${url} with status ${response.status}. Retrying with GET.`,
+                );
                 response = await fetch(url, {
-                    method: 'GET',
+                    method: "GET",
                     signal: AbortSignal.timeout(10000),
-                    headers: { 'User-Agent': USER_AGENT }
+                    headers: { "User-Agent": USER_AGENT },
                 });
                 wasGetRequest = true;
             }
-            
+
             // Проверяем статус ответа
             if (response.status >= 400 && response.status !== 418) {
                 // Если это ошибка, которую стоит повторить (серверная или rate limit)
-                if ((response.status === 429 || response.status >= 500) && retriesLeft > 0) {
-                    logger.warn(`Retrying ${url} after status ${response.status}. Retries left: ${retriesLeft}`);
+                if (
+                    (response.status === 429 || response.status >= 500) &&
+                    retriesLeft > 0
+                ) {
+                    logger.warn(
+                        `Retrying ${url} after status ${response.status}. Retries left: ${retriesLeft}`,
+                    );
                     // Ждем и рекурсивно вызываем функцию
-                    await new Promise(resolve => setTimeout(resolve, RETRY_DELAY));
+                    await new Promise((resolve) =>
+                        setTimeout(resolve, RETRY_DELAY),
+                    );
                     return this.checkLinkBroken(url, retriesLeft - 1);
                 }
                 // Если это битая ссылка
                 return { url, status: response.status, error: null };
             }
-    
-            if (wasGetRequest) { // soft 404
+
+            if (wasGetRequest) {
+                // soft 404
                 const body = await response.text();
-                if (/<title>.*(404|not found|не найдена).*<\/title>/i.test(body)) {
-                     logger.warn(`Soft 404 detected on ${url}`);
-                     return { url, status: 200, error: 'Soft 404 Detected' };
+                if (
+                    /<title>.*(404|not found|не найдена).*<\/title>/i.test(body)
+                ) {
+                    logger.warn(`Soft 404 detected on ${url}`);
+                    return { url, status: 200, error: "Soft 404 Detected" };
                 }
             }
-            
+
             // Если все хорошо
             return null;
-    
         } catch (error) {
-            const errorMessage = error instanceof Error ? error.message : 'unknown';
-    
+            const errorMessage =
+                error instanceof Error ? error.message : "unknown";
+
             // Если ошибка связана с сетью и есть попытки, пробуем снова
             if (retriesLeft > 0) {
-                 logger.warn(`Retrying ${url} after network error: ${errorMessage}. Retries left: ${retriesLeft}`);
-                 await new Promise(resolve => setTimeout(resolve, RETRY_DELAY));
-                 return this.checkLinkBroken(url, retriesLeft - 1);
+                logger.warn(
+                    `Retrying ${url} after network error: ${errorMessage}. Retries left: ${retriesLeft}`,
+                );
+                await new Promise((resolve) =>
+                    setTimeout(resolve, RETRY_DELAY),
+                );
+                return this.checkLinkBroken(url, retriesLeft - 1);
             }
-    
+
             // Если попытки кончились, считаем ссылку битой
             return { url, status: -1, error: errorMessage };
         }
