@@ -61,7 +61,8 @@ export default class TaskProcessor {
                     robotsTxtExists: analyzed.robotsTxt !== null,
                 },
                 brokenLinks: analyzed.brokenLinks,
-                lighthouse: analyzed.lighthouse || null
+                lighthouse: analyzed.lighthouse || null,
+                techStack: analyzed.techStack || null
             };
 
             result = JSON.stringify(data);
