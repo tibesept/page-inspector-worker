@@ -1,11 +1,11 @@
 import puppeteer from "puppeteer-core";
-import logger from "../logger.js";
 import lighthouse from "lighthouse";
 import { Flags } from "lighthouse";
-import { launch } from "chrome-launcher";
 
+import logger from "../logger.js";
 import { config } from "../config.js";
-import { JobWorkerBrokenLinksType } from "../types.js";
+
+import { JobWorkerBrokenLinksType, JobWorkerLighthouseResult } from "../types.js";
   
 const RETRY_COUNT = 2; // Количество повторных попыток
 const RETRY_DELAY = 3000; // Начальная задержка в мс
@@ -27,6 +27,7 @@ export interface PageAnalysisResult {
     seoData: SeoData;
     robotsTxt: string | null;
     brokenLinks: JobWorkerBrokenLinksType;
+    lighthouse: JobWorkerLighthouseResult | null;
 }
 
 export default class PageAnalyzer {
@@ -50,6 +51,17 @@ export default class PageAnalyzer {
         });
 
         logger.debug("Browser setup");
+
+        let lighthouseResult: JobWorkerLighthouseResult | null = null;
+        try {
+            logger.debug("Running Lighthouse...");
+            lighthouseResult = await this.runLightHouse(url, browser);
+            logger.info(lighthouseResult, "Lighthouse analysis complete");
+        } catch (err) {
+            logger.error(err, "Lighthouse run failed");
+            // Не прерываем выполнение, просто логгируем ошибку
+        }
+
         const page = await browser.newPage();
         await page.setUserAgent(USER_AGENT);
         await page.setViewport({
@@ -154,37 +166,66 @@ export default class PageAnalyzer {
             image: Buffer.from(image),
             seoData,
             robotsTxt,
-            brokenLinks
+            brokenLinks,
+            lighthouse: lighthouseResult
         };
     }
 
 
 
-    // async runLightHouse(url: string) {
-    //     async function runLighthouse(url: string) {
-    //         // Запускаем Chrome
-    //         const chrome = await launch({ chromeFlags: ["--headless", "--no-sandbox"] });
-          
-    //         const options: Flags = {
-    //           logLevel: "info",
-    //           output: "json", // или "html", или массив ["json","html"]
-    //           onlyCategories: ["performance", "seo", "best-practices"],
-    //           port: chrome.port,
-    //         };
-          
-    //         // Запускаем Lighthouse
-    //         const runnerResult = await lighthouse(url, options);
-          
-    //         // runnerResult.report — это строка (HTML или JSON в зависимости от options.output)
-    //         // runnerResult.lhr — готовый объект с результатами
-    //         console.log("Performance score was", runnerResult?.lhr.categories.performance.score);
-          
-    //         await chrome.kill();
-          
-    //         return runnerResult;
-    //       }
-    // }
+private async runLightHouse(url: string, browser: puppeteer.Browser): Promise<JobWorkerLighthouseResult | null> {
+        // Получаем порт из WebSocket-адреса браузера
+        const port = new URL(browser.wsEndpoint()).port;
 
+        const options: Flags = {
+            port: +port, // порт должен быть числом!!
+            output: "json",
+            onlyCategories: ["performance", "accessibility", "best-practices", "seo"],
+            logLevel: "info",
+            
+            screenEmulation: {
+                mobile: true,
+                width: 720,
+                height: 1280,
+                deviceScaleFactor: 2,
+            },
+            
+            // медленное соединение для эмуляции
+            throttling: {
+                rttMs: 40,
+                throughputKbps: 10 * 1024,
+                cpuSlowdownMultiplier: 4,
+                requestLatencyMs: 0, 
+                downloadThroughputKbps: 0,
+                uploadThroughputKbps: 0,
+            },
+        };
+      
+        // запуск аудита
+        const runnerResult = await lighthouse(url, options);
+
+        if (!runnerResult?.lhr) {
+            return null;
+        }
+
+        const lhr = runnerResult.lhr;
+
+        // берем только нужные метрики
+        const getNumericValue = (id: string): number | null => {
+            return lhr.audits[id]?.numericValue ?? null;
+        }
+
+        return {
+            performance: lhr.categories.performance.score,
+            accessibility: lhr.categories.accessibility.score,
+            bestPractices: lhr.categories['best-practices'].score,
+            seo: lhr.categories.seo.score,
+
+            lcp: getNumericValue('largest-contentful-paint'),
+            cls: getNumericValue('cumulative-layout-shift'),
+            tbt: getNumericValue('total-blocking-time'),
+        };
+    }
 
     async checkLinkBroken(url: string, retriesLeft = RETRY_COUNT): Promise<JobWorkerBrokenLinksType[number] | null> {
 

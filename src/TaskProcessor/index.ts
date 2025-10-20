@@ -60,7 +60,8 @@ export default class TaskProcessor {
                     ...analyzed.seoData,
                     robotsTxtExists: analyzed.robotsTxt !== null,
                 },
-                brokenLinks: analyzed.brokenLinks
+                brokenLinks: analyzed.brokenLinks,
+                lighthouse: analyzed.lighthouse || null
             };
 
             result = JSON.stringify(data);
