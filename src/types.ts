@@ -57,7 +57,18 @@ export const jobTaskSchema = z.object({
 
 
 // WORKER
+export const lighthouseResultSchema = z.object({
+    // Общие оценки (0-1)
+    performance: z.number().nullable(),
+    accessibility: z.number().nullable(),
+    bestPractices: z.number().nullable(),
+    seo: z.number().nullable(),
 
+    // Core Web Vitals
+    lcp: z.number().nullable(), // Largest Contentful Paint (ms)
+    cls: z.number().nullable(), // Cumulative Layout Shift (score)
+    tbt: z.number().nullable(), // Total Blocking Time (ms)
+});
 export const jobWorkerResultSchema = z.object({
     screenshot: z.string(), // base64 строка
     status: z.number().nullable(), // HTTP-код или null
@@ -74,13 +85,14 @@ export const jobWorkerResultSchema = z.object({
         url: z.string(),
         status: z.number(),
         error: z.string().nullable()
-    }))
+    })),
+    lighthouse: lighthouseResultSchema.nullable()
 });
-
 
 
 export type JobWorkerResultDTO = z.infer<typeof jobWorkerResultSchema>;
 export type JobWorkerBrokenLinksType = JobWorkerResultDTO['brokenLinks'];
+export type JobWorkerLighthouseResult = z.infer<typeof lighthouseResultSchema>;
 
 // TYPES
 export type CreateJobBody = z.infer<typeof createJobBodySchema>;
