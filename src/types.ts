@@ -86,7 +86,8 @@ export const jobWorkerResultSchema = z.object({
         status: z.number(),
         error: z.string().nullable()
     })),
-    lighthouse: lighthouseResultSchema.nullable()
+    lighthouse: lighthouseResultSchema.nullable(),
+    techStack: z.array(z.string()).nullable()
 });
 
 
