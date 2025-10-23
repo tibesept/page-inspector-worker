@@ -7,6 +7,7 @@ export const jobAnalyzerSettings = z.object({
     seo: z.boolean(),
     lighthouse: z.boolean(),
     techstack: z.boolean(),
+    ai_summary: z.boolean()
 });
 
 // BODY VALIDATION
@@ -16,6 +17,11 @@ export const createJobBodySchema = z.object({
     type: z.number(),
     settings: jobAnalyzerSettings,
 });
+
+export const updateJobStatusBodySchema = z.object({
+    status: z.string()
+});
+
 
 export const updateJobBodySchema = z.object({
     status: z.string(),
@@ -35,11 +41,21 @@ export const postJobSchemaDTO = z.object({
     status: z.string(),
 });
 
-export const jobsReadySchemaDTO = z.array(
-    z.object({
-        jobId: z.number(),
-    }),
-);
+export const jobReadySummary = z.object({
+    jobId: z.number(),
+    userId: z.number(),
+    url: z.string(),
+    ai_summary: z.string()
+})
+export const jobsReadySchemaDTO = z.object({
+    readyJobs: z.array(
+        z.object({
+            jobId: z.number(),
+        }),
+    ),
+    readySummaries: z.array(jobReadySummary)
+})
+
 
 export const jobSchemaDTO = z
     .object({
@@ -51,6 +67,7 @@ export const jobSchemaDTO = z
         result: z.string().nullable(),
         status: z.string().nullable(),
         settings: jobAnalyzerSettings,
+        ai_summary: z.string().nullable()
     })
     .nullable();
 
@@ -109,6 +126,8 @@ export type JobWorkerSeoResult = z.infer<typeof seoResultSchema>;
 // TYPES
 export type CreateJobBody = z.infer<typeof createJobBodySchema>;
 export type UpdateJobBody = z.infer<typeof updateJobBodySchema>;
+export type UpdateJobStatusBody = z.infer<typeof updateJobStatusBodySchema>;
+
 export type JobsReadyDTO = z.infer<typeof jobsReadySchemaDTO>;
 export type JobDTO = z.infer<typeof jobSchemaDTO>;
 export type UserDTO = z.infer<typeof userSchemaDTO>;
@@ -116,3 +135,4 @@ export type CreateJobDTO = z.infer<typeof postJobSchemaDTO>;
 
 export type JobTask = z.infer<typeof jobTaskSchema>;
 export type JobAnalyzerSettingsDB = z.infer<typeof jobAnalyzerSettings>;
+export type JobReadySummary = z.infer<typeof jobReadySummary>;
