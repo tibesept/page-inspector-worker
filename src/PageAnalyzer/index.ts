@@ -6,8 +6,8 @@ import logger from "../logger.js";
 import { config } from "../config.js";
 
 import {
-    JobWorkerBrokenLinksType,
     JobWorkerLighthouseResult,
+    jobAnalyzerSettings
 } from "../types.js";
 import { TECH_RULES } from "./techRules.js";
 
@@ -25,23 +25,48 @@ export interface SeoData {
     externalLinks: number;
 }
 
+
+export interface IBrokenLink {
+    url: string,
+    status: number,
+    error: string | null
+}
 export interface PageAnalysisResult {
     response: puppeteer.HTTPResponse | null;
     image: Buffer;
-    seoData: SeoData;
+    seoData: SeoData | null;
     robotsTxt: string | null;
-    brokenLinks: JobWorkerBrokenLinksType;
+    brokenLinks: IBrokenLink[] | null;
     lighthouse: JobWorkerLighthouseResult | null;
     techStack: string[] | null;
 }
 
+export interface IAnalyzerSettings {
+    depth: number;
+    links: boolean;
+    seo: boolean;
+    lighthouse: boolean;
+    techstack: boolean;
+}
+
+
+
 export default class PageAnalyzer {
     private readonly type;
-    private readonly depth;
+    private readonly settings: IAnalyzerSettings;
 
-    constructor(type: number, depth: number) {
+    constructor(type: number, settingsString: string) {
         this.type = type; // Тип задачи. Платная/бесплатная
-        this.depth = depth; // Глубина задачи
+        
+        const settings = jobAnalyzerSettings.parse(JSON.parse(settingsString)) // парсим
+        
+        this.settings = { // меппим. Чтоб наверняка
+            depth: settings.depth,
+            links: settings.links,
+            seo: settings.seo,
+            lighthouse: settings.lighthouse,
+            techstack: settings.techstack
+        }
     }
 
     async analyze(url: string) {
@@ -59,13 +84,15 @@ export default class PageAnalyzer {
 
         // --- LIGHTHOUSE ---
         let lighthouseResult: JobWorkerLighthouseResult | null = null;
-        try {
-            logger.debug("Running Lighthouse...");
-            lighthouseResult = await this.runLightHouse(url, browser);
-            logger.info(lighthouseResult, "Lighthouse analysis complete");
-        } catch (err) {
-            logger.error(err, "Lighthouse run failed");
-            // Не прерываем выполнение, просто логгируем ошибку
+        if(this.settings.lighthouse) {
+            try {
+                logger.debug("Running Lighthouse...");
+                lighthouseResult = await this.runLightHouse(url, browser);
+                logger.info(lighthouseResult, "Lighthouse analysis complete");
+            } catch (err) {
+                logger.error(err, "Lighthouse run failed");
+                // Не прерываем выполнение, просто логгируем ошибку
+            }
         }
 
         // --- PUPPETEER SETUP ---
@@ -86,31 +113,34 @@ export default class PageAnalyzer {
         logger.debug("Evaluate");
 
         // --- SEO DATA ---
-        const seoData = await page.evaluate(() => {
-            const title = document.title || null;
-            const description =
-                document
-                    .querySelector("meta[name='description']")
-                    ?.getAttribute("content") || null;
-            const h1 = document.querySelector("h1")?.innerText || null;
-
-            const links = Array.from(document.querySelectorAll("a"))
-                .map((a) => (a as HTMLAnchorElement).href)
-                .filter(Boolean);
-
-            return {
-                title,
-                description,
-                h1,
-                linksCount: links.length,
-                internalLinks: links.filter((l) =>
-                    l.includes(location.hostname),
-                ).length,
-                externalLinks: links.filter(
-                    (l) => !l.includes(location.hostname),
-                ).length,
-            };
-        });
+        let seoData: SeoData | null = null;
+        if(this.settings.seo) {
+            seoData = await page.evaluate((): SeoData  => {
+                const title = document.title || null;
+                const description =
+                    document
+                        .querySelector("meta[name='description']")
+                        ?.getAttribute("content") || null;
+                const h1 = document.querySelector("h1")?.innerText || null;
+    
+                const links = Array.from(document.querySelectorAll("a"))
+                    .map((a) => (a as HTMLAnchorElement).href)
+                    .filter(Boolean);
+    
+                return {
+                    title,
+                    description,
+                    h1,
+                    linksCount: links.length,
+                    internalLinks: links.filter((l) =>
+                        l.includes(location.hostname),
+                    ).length,
+                    externalLinks: links.filter(
+                        (l) => !l.includes(location.hostname),
+                    ).length,
+                };
+            });
+        }
 
         // --- ROBOTS TXT ---
         logger.debug("Robots.txt check");
@@ -127,13 +157,15 @@ export default class PageAnalyzer {
 
         // --- TECH STACK ---
         let techStack: string[] | null = null;
-        try {
-            logger.debug("Detecting tech stack...");
-            // Передаем все три источника данных
-            techStack = await this.detectTechStack(page, response, robotsTxt);
-            logger.info(techStack, "Tech stack detected");
-        } catch (err) {
-            logger.error(err, "Tech stack detection failed");
+        if(this.settings.techstack) {
+            try {
+                logger.debug("Detecting tech stack...");
+                // Передаем все три источника данных
+                techStack = await this.detectTechStack(page, response, robotsTxt);
+                logger.info(techStack, "Tech stack detected");
+            } catch (err) {
+                logger.error(err, "Tech stack detection failed");
+            }
         }
 
         // --- SCREENSHOT ---
@@ -144,37 +176,40 @@ export default class PageAnalyzer {
             omitBackground: true, // делает фон прозрачным (если страница не задает цвет фона)
         });
 
+
         // --- BROKEN LINKS ---
-        const brokenLinks: JobWorkerBrokenLinksType = [];
+        const brokenLinks: IBrokenLink[] = [];
+        if(this.settings.links) {
+            const links = await page.$$eval("a, area", (anchors) =>
+                anchors.map((anchor) => anchor.href),
+            );
+    
+            const CONCURRENCY_LIMIT = 10; // Лимит одновременных запросов
+            const CHUNK_DELAY = 1000; // Задержка между пачками
+    
+            const results = [];
+            const linksToCheck = [...new Set(links)];
+            logger.info(`Unique links found: ${linksToCheck.length}`);
+            // Обрабатываем ссылки пачками
+            for (let i = 0; i < linksToCheck.length; i += CONCURRENCY_LIMIT) {
+                const chunk = linksToCheck.slice(i, i + CONCURRENCY_LIMIT);
 
-        const links = await page.$$eval("a, area", (anchors) =>
-            anchors.map((anchor) => anchor.href),
-        );
+                logger.info(`Checking chunk ${Math.floor(i / CONCURRENCY_LIMIT) + 1}...`);
 
-        const CONCURRENCY_LIMIT = 10; // Лимит одновременных запросов
-        const CHUNK_DELAY = 1000; // Новая константа: задержка в 1 секунду между пачками
+                const promises = chunk.map(link => this.checkLinkBroken(link));
+                const chunkResults = await Promise.all(promises);
 
-        const results = [];
-        const linksToCheck = [...new Set(links)];
-        logger.info(`Unique links found: ${linksToCheck.length}`);
+                results.push(...chunkResults.filter(result => result !== null));
 
-        // Обрабатываем ссылки пачками
-        for (let i = 0; i < linksToCheck.length; i += CONCURRENCY_LIMIT) {
-            const chunk = linksToCheck.slice(i, i + CONCURRENCY_LIMIT);
-
-            logger.info(`Checking chunk ${Math.floor(i / CONCURRENCY_LIMIT) + 1}...`);
-
-            const promises = chunk.map(link => this.checkLinkBroken(link));
-            const chunkResults = await Promise.all(promises);
-
-            results.push(...chunkResults.filter(result => result !== null));
-
-            // Делаем паузу перед следующей пачкой
-            if (i + CONCURRENCY_LIMIT < linksToCheck.length) {
-                await new Promise(resolve => setTimeout(resolve, CHUNK_DELAY));
+                // Делаем паузу перед следующей пачкой
+                if (i + CONCURRENCY_LIMIT < linksToCheck.length) {
+                    await new Promise(resolve => setTimeout(resolve, CHUNK_DELAY));
+                }
             }
+            logger.info("All links checked.");
         }
-        logger.info("All links checked.");
+
+
 
         logger.debug("Closing browser");
         await browser.close();
@@ -184,11 +219,16 @@ export default class PageAnalyzer {
             image: Buffer.from(image),
             seoData,
             robotsTxt,
-            brokenLinks,
+            brokenLinks: this.settings.links ? brokenLinks : null,
             lighthouse: lighthouseResult,
             techStack: techStack,
         };
     }
+
+
+
+
+
 
     private async runLightHouse(
         url: string,
@@ -356,7 +396,7 @@ export default class PageAnalyzer {
     async checkLinkBroken(
         url: string,
         retriesLeft = RETRY_COUNT,
-    ): Promise<JobWorkerBrokenLinksType[number] | null> {
+    ): Promise<IBrokenLink | null> {
         // Пропускаем не-HTTP ссылки
         const nonHttpProtocolsRegex =
             /^(#|javascript:|mailto:|tel:|sms:|fax:|file:|data:|blob:)/;
