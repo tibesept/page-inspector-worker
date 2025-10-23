@@ -16,7 +16,7 @@ export default class TaskProcessor {
     constructor(task: JobTask) {
         this.task = task;
 
-        this.analyzer = new PageAnalyzer(this.task.type, this.task.depth)
+        this.analyzer = new PageAnalyzer(this.task.type, this.task.settings)
     }
 
     async processTask() {
@@ -56,11 +56,16 @@ export default class TaskProcessor {
             const data: JobWorkerResultDTO = {
                 screenshot: analyzed.image.toString("base64"),
                 status: analyzed.response?.status() || null,
-                seo: {
-                    ...analyzed.seoData,
-                    robotsTxtExists: analyzed.robotsTxt !== null,
-                },
-                brokenLinks: analyzed.brokenLinks,
+                seo: (analyzed.seoData || analyzed.brokenLinks) ? {
+                    title: analyzed.seoData?.title || null,
+                    description: analyzed.seoData?.description || null,
+                    h1: analyzed.seoData?.h1 || null,
+                    linksCount: analyzed.seoData?.linksCount || null,
+                    internalLinks: analyzed.seoData?.internalLinks || null,
+                    externalLinks: analyzed.seoData?.externalLinks || null,
+                    brokenLinks: analyzed.brokenLinks || null,
+                } : null,
+                robotsTxtExists: analyzed.robotsTxt !== null,
                 lighthouse: analyzed.lighthouse || null,
                 techStack: analyzed.techStack || null
             };

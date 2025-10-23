@@ -1,11 +1,20 @@
 import { z } from "zod";
 
+// helper
+export const jobAnalyzerSettings = z.object({
+    depth: z.number().min(1),
+    links: z.boolean(),
+    seo: z.boolean(),
+    lighthouse: z.boolean(),
+    techstack: z.boolean(),
+});
+
 // BODY VALIDATION
 export const createJobBodySchema = z.object({
     userId: z.number(),
     url: z.string().url({ message: "Неверный формат URL" }),
     type: z.number(),
-    depth: z.number().int().min(1), // Глубина должна быть хотя бы 1
+    settings: jobAnalyzerSettings,
 });
 
 export const updateJobBodySchema = z.object({
@@ -13,7 +22,7 @@ export const updateJobBodySchema = z.object({
     result: z.string(),
 });
 
-// DTO (API RESPONSES)
+// ---- DTO (API RESPONSES) ----
 
 export const userSchemaDTO = z.object({
     userId: z.number(),
@@ -34,17 +43,18 @@ export const jobsReadySchemaDTO = z.array(
 
 export const jobSchemaDTO = z
     .object({
+        // get FULL job
         userId: z.number(),
-        type: z.number(),
-        url: z.string(),
-        depth: z.number(),
-        result: z.string(),
         jobId: z.number(),
-        status: z.string(),
+        type: z.number().nullable(),
+        url: z.string().nullable(),
+        result: z.string().nullable(),
+        status: z.string().nullable(),
+        settings: jobAnalyzerSettings,
     })
     .nullable();
 
-// RABBIT
+//  ---- RABBIT ----
 
 export const jobTaskSchema = z.object({
     jobId: z.number(),
@@ -52,11 +62,10 @@ export const jobTaskSchema = z.object({
     url: z.string(),
     status: z.string(),
     type: z.number(),
-    depth: z.number()
+    settings: z.string(),
 });
 
-
-// WORKER
+// ----- WORKER -----
 export const lighthouseResultSchema = z.object({
     // Общие оценки (0-1)
     performance: z.number().nullable(),
@@ -69,38 +78,41 @@ export const lighthouseResultSchema = z.object({
     cls: z.number().nullable(), // Cumulative Layout Shift (score)
     tbt: z.number().nullable(), // Total Blocking Time (ms)
 });
-export const jobWorkerResultSchema = z.object({
-    screenshot: z.string(), // base64 строка
-    status: z.number().nullable(), // HTTP-код или null
-    seo: z.object({
+export const seoResultSchema = z.object({
         title: z.string().nullable(),
         description: z.string().nullable(),
         h1: z.string().nullable(),
-        linksCount: z.number(),
-        internalLinks: z.number(),
-        externalLinks: z.number(),
-        robotsTxtExists: z.boolean(),
-    }),
-    brokenLinks: z.array(z.object({
-        url: z.string(),
-        status: z.number(),
-        error: z.string().nullable()
-    })),
+        linksCount: z.number().nullable(),
+        internalLinks: z.number().nullable(),
+        externalLinks: z.number().nullable(),
+        brokenLinks: z.array(
+        z.object({
+            url: z.string(),
+            status: z.number(),
+            error: z.string().nullable(),
+        }),
+    ).nullable()
+}).nullable()
+export const jobWorkerResultSchema = z.object({
+    screenshot: z.string(), // base64 строка
+    status: z.number().nullable(), // HTTP-код или null
+    robotsTxtExists: z.boolean().nullable(),
+    seo: seoResultSchema,
     lighthouse: lighthouseResultSchema.nullable(),
-    techStack: z.array(z.string()).nullable()
+    techStack: z.array(z.string()).nullable(),
 });
 
-
 export type JobWorkerResultDTO = z.infer<typeof jobWorkerResultSchema>;
-export type JobWorkerBrokenLinksType = JobWorkerResultDTO['brokenLinks'];
 export type JobWorkerLighthouseResult = z.infer<typeof lighthouseResultSchema>;
+export type JobWorkerSeoResult = z.infer<typeof seoResultSchema>;
 
 // TYPES
 export type CreateJobBody = z.infer<typeof createJobBodySchema>;
-export type UpdateJobBody = z.infer<typeof updateJobBodySchema>
+export type UpdateJobBody = z.infer<typeof updateJobBodySchema>;
 export type JobsReadyDTO = z.infer<typeof jobsReadySchemaDTO>;
 export type JobDTO = z.infer<typeof jobSchemaDTO>;
 export type UserDTO = z.infer<typeof userSchemaDTO>;
 export type CreateJobDTO = z.infer<typeof postJobSchemaDTO>;
 
 export type JobTask = z.infer<typeof jobTaskSchema>;
+export type JobAnalyzerSettingsDB = z.infer<typeof jobAnalyzerSettings>;
