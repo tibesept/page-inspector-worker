@@ -60,10 +60,10 @@ export default class TaskProcessor {
                     title: analyzed.seoData?.title || null,
                     description: analyzed.seoData?.description || null,
                     h1: analyzed.seoData?.h1 || null,
-                    linksCount: analyzed.seoData?.linksCount || null,
-                    internalLinks: analyzed.seoData?.internalLinks || null,
-                    externalLinks: analyzed.seoData?.externalLinks || null,
-                    brokenLinks: analyzed.brokenLinks || null,
+                    linksCount: analyzed.seoData?.linksCount ?? null, // число
+                    internalLinks: analyzed.seoData?.internalLinks ?? null, // число
+                    externalLinks: analyzed.seoData?.externalLinks ?? null, // число
+                    brokenLinks: analyzed.brokenLinks || null, // массив
                 } : null,
                 robotsTxtExists: analyzed.robotsTxt !== null,
                 lighthouse: analyzed.lighthouse || null,
