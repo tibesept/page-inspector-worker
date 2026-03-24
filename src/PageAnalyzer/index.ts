@@ -10,6 +10,7 @@ import {
     jobAnalyzerSettings
 } from "../types.js";
 import { TECH_RULES } from "./techRules.js";
+import { ProcessJobError } from "../errors/jobError.js";
 
 const RETRY_COUNT = 2; // Количество повторных попыток
 const RETRY_DELAY = 3000; // Начальная задержка в мс
@@ -96,6 +97,7 @@ export default class PageAnalyzer {
         }
 
         // --- PUPPETEER SETUP ---
+        try {
         const page = await browser.newPage();
         await page.setUserAgent(USER_AGENT);
         await page.setViewport({
@@ -209,8 +211,6 @@ export default class PageAnalyzer {
             logger.info("All links checked.");
         }
 
-
-
         logger.debug("Closing browser");
         await browser.close();
 
@@ -223,8 +223,17 @@ export default class PageAnalyzer {
             lighthouse: lighthouseResult,
             techStack: techStack,
         };
-    }
 
+        } catch (err) {
+            logger.error(err, `Failed to parse page: ${url}`);
+            throw new ProcessJobError(err as Error);
+        } finally {
+            logger.debug("Closing browser");
+            if (browser) {
+                await browser.close().catch(e => logger.error(e, "Error while closing browser"));
+            }
+        }
+    }
 
 
 
@@ -240,26 +249,28 @@ export default class PageAnalyzer {
         const options: Flags = {
             port: +port, // порт должен быть числом!!
             output: "json",
-            onlyCategories: [
-                "performance",
-                "accessibility",
-                "best-practices",
-                "seo",
-            ],
+            onlyCategories: ["performance", "accessibility", "best-practices", "seo"],
             logLevel: "info",
+            
+            // математическая модель
+            throttlingMethod: "simulate", 
 
             screenEmulation: {
                 mobile: true,
-                width: 720,
-                height: 1280,
+                width: 390, 
+                height: 844,
                 deviceScaleFactor: 2,
             },
 
-            // медленное соединение для эмуляции
             throttling: {
-                rttMs: 40,
-                throughputKbps: 10 * 1024,
-                cpuSlowdownMultiplier: 4,
+                rttMs: 30, // пинг типичного 4G
+                throughputKbps: 15 * 1024, // 15 мбит/с
+                
+                // 2.5x - современный бюджетник
+                cpuSlowdownMultiplier: 2.5, 
+                
+                // эти параметры нужны только для devtools троттлинга, но 
+                // lighthouse просит их оставлять для совместимости
                 requestLatencyMs: 0,
                 downloadThroughputKbps: 0,
                 uploadThroughputKbps: 0,
