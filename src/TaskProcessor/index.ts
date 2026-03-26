@@ -33,9 +33,18 @@ export default class TaskProcessor {
             return;
         }
 
-        const analysingResult = await this.analyzer.parsePage(task.url);
-        const serializedResult = this.serializeAnalyzerOutput(analysingResult);
-        this.updateJob(serializedResult);
+        try {
+            const analysingResult = await this.analyzer.parsePage(task.url);
+            const serializedResult = this.serializeAnalyzerOutput(analysingResult);
+            await this.updateJob(serializedResult);
+        } catch (err) {
+            logger.error({ err }, "Task processing failed, marking job as failed");
+            await apiService.updateJobTask(task.jobId, {
+                status: "failed",
+                result: "",
+            });
+            throw err; // пробрасываем дальше, чтобы rabbit.ts тоже обработал (ретрай/DLQ)
+        }
     }
 
 
