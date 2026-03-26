@@ -8,6 +8,7 @@ export interface IAppConfig {
     api_url: string;
     chrome_executable_path?: string;
     args?: string[];
+    dead_queue_name: string;
 }
 
 const getEnv = <T>(key: string, parser?: (value: string) => T): T => {
@@ -28,5 +29,6 @@ export const config: IAppConfig = {
     queue_name: getEnv("RABBIT_QUEUE_NAME"),
     api_url: getEnv("API_URL"),
     chrome_executable_path: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
-    args: process.argv.slice(2)
+    args: process.argv.slice(2),
+    dead_queue_name: getEnv("RABBIT_DEAD_QUEUE_NAME")
 };
