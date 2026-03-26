@@ -240,6 +240,8 @@ export default class PageAnalyzer {
         url: string,
         browser: puppeteer.Browser,
     ): Promise<JobWorkerLighthouseResult | null> {
+        const LH_MAX_RETRIES = 2;
+
         // Получаем порт из WebSocket-адреса браузера
         const port = new URL(browser.wsEndpoint()).port;
 
@@ -251,6 +253,9 @@ export default class PageAnalyzer {
             
             // математическая модель
             throttlingMethod: "simulate", 
+
+            // даем тяжелым страницам больше времени на загрузку (по умолчанию ~10с)
+            maxWaitForLoad: 25000,
 
             screenEmulation: {
                 mobile: true,
@@ -274,30 +279,57 @@ export default class PageAnalyzer {
             },
         };
 
-        // запуск аудита
-        const runnerResult = await lighthouse(url, options);
+        for (let attempt = 1; attempt <= LH_MAX_RETRIES; attempt++) {
+            const runnerResult = await lighthouse(url, options);
 
-        if (!runnerResult?.lhr) {
-            return null;
+            if (!runnerResult?.lhr) {
+                logger.warn(`Lighthouse attempt ${attempt}/${LH_MAX_RETRIES}: no LHR returned`);
+                continue;
+            }
+
+            const lhr = runnerResult.lhr;
+
+            // логируем runtimeError, если Lighthouse объясняет причину провала
+            if (lhr.runtimeError) {
+                logger.warn(
+                    { code: lhr.runtimeError.code, message: lhr.runtimeError.message },
+                    `Lighthouse attempt ${attempt}/${LH_MAX_RETRIES}: runtime error`
+                );
+
+                // страница вернула ошибку - ретраить бесполезно, результат не изменится
+                if (lhr.runtimeError.code === "ERRORED_DOCUMENT_REQUEST") {
+                    logger.warn("Page returned an HTTP error. Skipping Lighthouse.");
+                    return null;
+                }
+            }
+
+            const result: JobWorkerLighthouseResult = {
+                performance: lhr.categories.performance.score,
+                accessibility: lhr.categories.accessibility.score,
+                bestPractices: lhr.categories["best-practices"].score,
+                seo: lhr.categories.seo.score,
+
+                lcp: lhr.audits["largest-contentful-paint"]?.numericValue ?? null,
+                cls: lhr.audits["cumulative-layout-shift"]?.numericValue ?? null,
+                tbt: lhr.audits["total-blocking-time"]?.numericValue ?? null,
+            };
+
+            // Проверяем, не пустые ли все результаты
+            const allNull = result.performance === null
+                && result.accessibility === null
+                && result.bestPractices === null
+                && result.seo === null;
+
+            if (allNull && attempt < LH_MAX_RETRIES) {
+                logger.warn(`Lighthouse attempt ${attempt}/${LH_MAX_RETRIES}: all scores null, retrying...`);
+                continue;
+            }
+
+            return result;
         }
 
-        const lhr = runnerResult.lhr;
-
-        // берем только нужные метрики
-        const getNumericValue = (id: string): number | null => {
-            return lhr.audits[id]?.numericValue ?? null;
-        };
-
-        return {
-            performance: lhr.categories.performance.score,
-            accessibility: lhr.categories.accessibility.score,
-            bestPractices: lhr.categories["best-practices"].score,
-            seo: lhr.categories.seo.score,
-
-            lcp: getNumericValue("largest-contentful-paint"),
-            cls: getNumericValue("cumulative-layout-shift"),
-            tbt: getNumericValue("total-blocking-time"),
-        };
+        logger.error("Lighthouse: all attempts exhausted, returning null");
+        return null;
     }
 
     private async detectTechStack(
@@ -444,7 +476,7 @@ export default class PageAnalyzer {
                     retriesLeft > 0
                 ) {
                     logger.warn(
-                        `Retrying ${url} after status ${response.status}. Retries left: ${retriesLeft}`,
+                        `Retrying broken link check: ${url} after status ${response.status}. Retries left: ${retriesLeft}`,
                     );
                     // Ждем и рекурсивно вызываем функцию
                     await new Promise((resolve) =>
