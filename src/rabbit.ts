@@ -14,7 +14,8 @@ class RabbitMQClient {
 
     constructor(
         private readonly url: string,
-        private readonly queueName: string
+        private readonly queueName: string,
+        private readonly deadQueueName: string
     ) {}
 
     /**
@@ -37,6 +38,8 @@ class RabbitMQClient {
 
                 const channel = await this.connection.createChannel();
                 await channel.assertQueue(this.queueName, { durable: true });
+                await channel.assertQueue(this.deadQueueName, { durable: true });
+
 
                 this.channel = channel;
                 logger.info("RabbitMQ connected, channel ready.");
@@ -91,13 +94,44 @@ class RabbitMQClient {
             async (msg) => {
                 if (!msg) return;
                 try {
+                    // обрабатываем задачу
                     await onMessage(msg);
                     channel.ack(msg);
+                   
                 } catch (err) {
-                    logger.error({ err }, "Error processing message");
-                    // можно nack → повтор или drop
-                    channel.nack(msg, false, false);
-                }
+                    logger.error({ err }, "Error processing rabbitmq message");
+                    
+                    const headers = msg.properties.headers || {};
+                    const retries = typeof headers['x-retries'] === 'number' ? headers['x-retries'] : 0;
+                    const maxRetries = 3;
+
+                    if (retries < maxRetries) {
+                        logger.warn(`RabbitMQ task failed. Retrying... attempt ${retries + 1} of ${maxRetries}`);
+                        // повторная отправка в основную очередь с увеличенным счетчиком
+                        channel.sendToQueue(this.queueName, msg.content, {
+                            ...msg.properties,
+                            headers: {
+                                ...headers,
+                                'x-retries': retries + 1
+                            }
+                        });
+                    } else {
+                        logger.error("RabbitMQ task failed after maximum retries. Moving to DLQ.");
+                        // максимум попыток исчерпан, отправляем в DLQ (мертвую очередь)
+                        channel.sendToQueue(this.deadQueueName, msg.content, {
+                            ...msg.properties,
+                            headers: {
+                                ...headers,
+                                'x-retries': retries + 1,
+                                'x-error': err instanceof Error ? err.message : String(err)
+                            }
+                        });
+                    }
+                    
+                    // обязательно подтверждаем текущее сообщение, чтобы оно удалилось из очереди, 
+                    // так как мы переотправили его либо обратно с +1 к счетчику либо в DLQ
+                    channel.ack(msg);
+                } // конец catch
             },
             { noAck: false }
         );
@@ -125,4 +159,4 @@ class RabbitMQClient {
     }
 }
 
-export const rabbitMQClient = new RabbitMQClient(config.rabbit_url, config.queue_name);
+export const rabbitMQClient = new RabbitMQClient(config.rabbit_url, config.queue_name, config.dead_queue_name);
