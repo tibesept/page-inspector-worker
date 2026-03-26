@@ -189,7 +189,6 @@ export default class PageAnalyzer {
             const CONCURRENCY_LIMIT = 10; // Лимит одновременных запросов
             const CHUNK_DELAY = 1000; // Задержка между пачками
     
-            const results = [];
             const linksToCheck = [...new Set(links)];
             logger.info(`Unique links found: ${linksToCheck.length}`);
             // Обрабатываем ссылки пачками
@@ -201,7 +200,7 @@ export default class PageAnalyzer {
                 const promises = chunk.map(link => this.checkLinkBroken(link));
                 const chunkResults = await Promise.all(promises);
 
-                results.push(...chunkResults.filter(result => result !== null));
+                brokenLinks.push(...chunkResults.filter((result): result is IBrokenLink => result !== null));
 
                 // Делаем паузу перед следующей пачкой
                 if (i + CONCURRENCY_LIMIT < linksToCheck.length) {
@@ -234,8 +233,6 @@ export default class PageAnalyzer {
             }
         }
     }
-
-
 
 
 
