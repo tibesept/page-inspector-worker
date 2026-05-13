@@ -53,9 +53,9 @@ class ApiHttpClient {
             signal: AbortSignal.timeout(4000), // таймаут
         };
 
-        logger.debug(body,
-            `Doing ${method} request to URL: ${url}${body ? ' with body:' : ''}`
-        );
+        // logger.debug(body,
+        //     `Doing ${method} request to URL: ${url}${body ? ' with body:' : ''}`
+        // );
 
         try {
             const response = await fetch(url, options);

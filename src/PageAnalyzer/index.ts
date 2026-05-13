@@ -49,6 +49,7 @@ export interface IAnalyzerSettings {
     links: boolean;
     seo: boolean;
     lighthouse: boolean;
+    lighthouse_pro: boolean;
     techstack: boolean;
 }
 
@@ -68,6 +69,7 @@ export default class PageAnalyzer {
             links: settings.links,
             seo: settings.seo,
             lighthouse: settings.lighthouse,
+            lighthouse_pro: settings.lighthouse_pro,
             techstack: settings.techstack
         }
     }
@@ -306,7 +308,9 @@ export default class PageAnalyzer {
             }
 
             // --- извлекаем детальные аудиты (premiumInsights) ---
-            const premiumInsights = this.extractPremiumInsights(lhr);
+            const premiumInsights = this.settings.lighthouse_pro 
+                ? this.extractPremiumInsights(lhr)
+                : null;
 
             const result: JobWorkerLighthouseResult = {
                 performance: lhr.categories.performance.score,
