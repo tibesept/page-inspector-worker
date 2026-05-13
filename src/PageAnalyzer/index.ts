@@ -7,6 +7,8 @@ import { config } from "../config.js";
 
 import {
     JobWorkerLighthouseResult,
+    LighthouseAuditItem,
+    LighthousePremiumInsights,
     jobAnalyzerSettings
 } from "../types.js";
 import { TECH_RULES } from "./techRules.js";
@@ -303,6 +305,9 @@ export default class PageAnalyzer {
                 }
             }
 
+            // --- извлекаем детальные аудиты (premiumInsights) ---
+            const premiumInsights = this.extractPremiumInsights(lhr);
+
             const result: JobWorkerLighthouseResult = {
                 performance: lhr.categories.performance.score,
                 accessibility: lhr.categories.accessibility.score,
@@ -312,6 +317,8 @@ export default class PageAnalyzer {
                 lcp: lhr.audits["largest-contentful-paint"]?.numericValue ?? null,
                 cls: lhr.audits["cumulative-layout-shift"]?.numericValue ?? null,
                 tbt: lhr.audits["total-blocking-time"]?.numericValue ?? null,
+
+                premiumInsights,
             };
 
             // Проверяем, не пустые ли все результаты
@@ -330,6 +337,63 @@ export default class PageAnalyzer {
 
         logger.error("Lighthouse: all attempts exhausted, returning null");
         return null;
+    }
+
+    /**
+     * Извлекает детальные аудиты из Lighthouse для premium-отчетов.
+     * Парсит конкретные ресурсы, которые тормозят сайт.
+     */
+    private extractPremiumInsights(lhr: any): LighthousePremiumInsights {
+        try {
+            // хелпер: извлечь items из аудита в формате LighthouseAuditItem[]
+            const extractItems = (auditId: string): LighthouseAuditItem[] => {
+                const audit = lhr.audits[auditId];
+                if (!audit?.details?.items) return [];
+
+                return audit.details.items
+                    .filter((item: any) => item.url)
+                    .map((item: any): LighthouseAuditItem => ({
+                        url: item.url,
+                        wastedBytes: item.wastedBytes ?? item.totalBytes ?? null,
+                        wastedMs: item.wastedMs ?? null,
+                        totalBytes: item.totalBytes ?? null,
+                    }));
+            };
+
+            // нагрузка на main thread (другой формат — group + duration)
+            const mainThreadItems = lhr.audits["mainthread-work-breakdown"]?.details?.items ?? [];
+            const mainThreadWork = mainThreadItems
+                .filter((item: any) => item.group && item.duration > 0)
+                .map((item: any) => ({
+                    group: item.group as string,
+                    duration: Math.round(item.duration as number),
+                }));
+
+            const insights: LighthousePremiumInsights = {
+                renderBlocking: extractItems("render-blocking-resources"),
+                unusedJavascript: extractItems("unused-javascript"),
+                unusedCss: extractItems("unused-css-rules"),
+                unoptimizedImages: [
+                    ...extractItems("uses-optimized-images"),
+                    ...extractItems("uses-responsive-images"),
+                    ...extractItems("modern-image-formats"),
+                ],
+                mainThreadWork,
+            };
+
+            logger.info({
+                renderBlocking: insights.renderBlocking.length,
+                unusedJs: insights.unusedJavascript.length,
+                unusedCss: insights.unusedCss.length,
+                unoptimizedImages: insights.unoptimizedImages.length,
+                mainThreadGroups: insights.mainThreadWork.length,
+            }, "Premium insights extracted");
+
+            return insights;
+        } catch (err) {
+            logger.error({ err }, "Failed to extract premium insights");
+            return null;
+        }
     }
 
     private async detectTechStack(
