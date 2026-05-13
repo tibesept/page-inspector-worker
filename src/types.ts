@@ -83,6 +83,24 @@ export const jobTaskSchema = z.object({
 });
 
 // ----- WORKER -----
+export const lighthouseAuditItemSchema = z.object({
+    url: z.string(),
+    wastedBytes: z.number().nullable(),
+    wastedMs: z.number().nullable(),
+    totalBytes: z.number().nullable(),
+});
+
+export const lighthousePremiumInsightsSchema = z.object({
+    renderBlocking: z.array(lighthouseAuditItemSchema),   // ресурсы, блокирующие отрисовку
+    unusedJavascript: z.array(lighthouseAuditItemSchema),  // неиспользуемый JS
+    unusedCss: z.array(lighthouseAuditItemSchema),         // неиспользуемый CSS
+    unoptimizedImages: z.array(lighthouseAuditItemSchema),  // неоптимизированные картинки
+    mainThreadWork: z.array(z.object({                     // нагрузка на основной поток
+        group: z.string(),
+        duration: z.number(),
+    })),
+}).nullable();
+
 export const lighthouseResultSchema = z.object({
     // Общие оценки (0-1)
     performance: z.number().nullable(),
@@ -94,6 +112,9 @@ export const lighthouseResultSchema = z.object({
     lcp: z.number().nullable(), // Largest Contentful Paint (ms)
     cls: z.number().nullable(), // Cumulative Layout Shift (score)
     tbt: z.number().nullable(), // Total Blocking Time (ms)
+
+    // Детальные аудиты (premium)
+    premiumInsights: lighthousePremiumInsightsSchema,
 });
 export const seoResultSchema = z.object({
         title: z.string().nullable(),
@@ -121,6 +142,8 @@ export const jobWorkerResultSchema = z.object({
 
 export type JobWorkerResultDTO = z.infer<typeof jobWorkerResultSchema>;
 export type JobWorkerLighthouseResult = z.infer<typeof lighthouseResultSchema>;
+export type LighthouseAuditItem = z.infer<typeof lighthouseAuditItemSchema>;
+export type LighthousePremiumInsights = z.infer<typeof lighthousePremiumInsightsSchema>;
 export type JobWorkerSeoResult = z.infer<typeof seoResultSchema>;
 
 // TYPES
