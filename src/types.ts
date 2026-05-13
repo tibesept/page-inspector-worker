@@ -6,6 +6,7 @@ export const jobAnalyzerSettings = z.object({
     links: z.boolean(),
     seo: z.boolean(),
     lighthouse: z.boolean(),
+    lighthouse_pro: z.boolean(),
     techstack: z.boolean(),
     ai_summary: z.boolean()
 });
